@@ -1,1 +1,5 @@
-package hw0
+package main
+
+func main() {
+
+}
