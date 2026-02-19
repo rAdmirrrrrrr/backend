@@ -11,42 +11,14 @@ import (
 	"time"
 )
 
-const writeTimeout = 10 * time.Second
-const ip = "0.0.0.0"
-const port = "8080"
-const protocol = "tcp"
-
-type connectionsSet struct {
-	mutex       sync.Mutex
-	connections map[net.Conn]struct{}
-}
-
-func (s *connectionsSet) add(conn net.Conn) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if s.connections == nil {
-		s.connections = make(map[net.Conn]struct{})
-	}
-	s.connections[conn] = struct{}{}
-}
-
-func (s *connectionsSet) remove(conn net.Conn) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	delete(s.connections, conn)
-}
-
-func (s *connectionsSet) closeAll() {
-	s.mutex.Lock()
-	list := make([]net.Conn, 0, len(s.connections))
-	for c := range s.connections {
-		list = append(list, c)
-	}
-	s.mutex.Unlock()
-	for _, c := range list {
-		c.Close()
-	}
-}
+const (
+	writeTimeout  = 10 * time.Second
+	readTimeout   = 10 * time.Second
+	ip            = "0.0.0.0"
+	port          = "8080"
+	protocol      = "tcp"
+	expectedReply = "OK\n"
+)
 
 func main() {
 	listener, err := net.Listen(protocol, net.JoinHostPort(ip, port))
@@ -57,7 +29,6 @@ func main() {
 	log.Printf("listening on %s\n", listener.Addr())
 
 	var waitGroup sync.WaitGroup
-	connections := &connectionsSet{}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -66,7 +37,6 @@ func main() {
 		<-stop
 		log.Println("shutting down...")
 		listener.Close()
-		connections.closeAll()
 	}()
 
 	for {
@@ -78,22 +48,23 @@ func main() {
 			log.Println("failed to accept connection, err:", err)
 			continue
 		}
-		connections.add(conn)
 		waitGroup.Add(1)
-		go handleConnection(conn, &waitGroup, connections)
+		go handleConnection(conn, &waitGroup)
 	}
 
 	waitGroup.Wait()
 	log.Println("server stopped")
 }
 
-func handleConnection(conn net.Conn, waitGroup *sync.WaitGroup, connections *connectionsSet) {
+func handleConnection(conn net.Conn, waitGroup *sync.WaitGroup) {
 	defer waitGroup.Done()
-	defer connections.remove(conn)
 	defer conn.Close()
 
 	conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-	if _, err := conn.Write([]byte("OK\n")); err != nil {
+	conn.SetReadDeadline(time.Now().Add(readTimeout))
+
+	if _, err := conn.Write([]byte(expectedReply)); err != nil {
+		log.Println("failed to write to connection:", err)
 		return
 	}
 }

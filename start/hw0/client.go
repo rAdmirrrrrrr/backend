@@ -4,15 +4,21 @@ import (
 	"bufio"
 	"log"
 	"net"
-	"os"
 	"time"
 )
 
-const addr = "127.0.0.1:8080"
-const timeout = 10 * time.Second
+const (
+	addr          = "127.0.0.1:8080"
+	timeout       = 10 * time.Second
+	expectedReply = "OK\n"
+)
 
 func main() {
-	conn, err := net.Dial("tcp", addr)
+	dialer := &net.Dialer{
+		Timeout: timeout,
+	}
+
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
 		log.Fatalf("failed to dial server: %v", err)
 	}
@@ -23,10 +29,12 @@ func main() {
 	reader := bufio.NewReader(conn)
 	reply, err := reader.ReadString('\n')
 	if err != nil {
-		os.Exit(1)
+		log.Fatalf("failed to read response: %v", err)
 	}
 
-	if reply != "OK\n" {
-		os.Exit(1)
+	if reply != expectedReply {
+		log.Fatalf("unexpected reply: %s", reply)
 	}
+
+	log.Println("server replied correctly")
 }
